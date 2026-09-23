@@ -869,8 +869,41 @@ impl RegistryBuilder {
         {
             // Handle Option types directly
             let inner_shape = option_def.t();
-            // Handle pointer types specially
-            let inner_format = get_format_for_shape(inner_shape)?;
+
+            // `Option` is structural, so a field-level namespace attribute
+            // names where the *inner* type lives. Only a user type has
+            // anything to qualify: `Option<u64>` has nothing to put in one.
+            let explicit_namespace = match &extract_namespace_from_field_attributes(field)? {
+                NamespaceAction::SetContext(ctx)
+                    if ctx.is_explicit()
+                        && matches!(
+                            inner_shape.ty,
+                            Type::User(UserType::Struct(_) | UserType::Enum(_))
+                        ) =>
+                {
+                    Some(ctx.namespace.clone())
+                }
+                _ => None,
+            };
+
+            let inner_format = if let Some(namespace) = &explicit_namespace {
+                let base_name = inner_shape.type_identifier.to_string();
+                let qualified_name = match namespace {
+                    Namespace::Root => QualifiedTypeName::root(base_name),
+                    Namespace::Named(name) => {
+                        QualifiedTypeName::namespaced(name.clone(), base_name)
+                    }
+                };
+                self.push_namespace(NamespaceAction::SetContext(NamespaceContext::explicit(
+                    namespace.clone(),
+                )));
+                self.format(inner_shape)?;
+                self.pop_namespace();
+                Format::TypeName(qualified_name)
+            } else {
+                // Handle pointer types specially
+                get_format_for_shape(inner_shape)?
+            };
             let option_format = Format::Option(Box::new(inner_format));
 
             if let Some(ContainerFormat::Struct(named_formats, _doc)) = self.get_mut() {
@@ -881,8 +914,9 @@ impl RegistryBuilder {
                 });
             }
 
-            // If the inner type is a user-defined type, we need to process it too
-            if !matches!(inner_shape.def, Def::Scalar) {
+            // If the inner type is a user-defined type, we need to process it
+            // too, unless the explicit-namespace arm above already did.
+            if explicit_namespace.is_none() && !matches!(inner_shape.def, Def::Scalar) {
                 self.format(inner_shape)?;
             }
             return Ok(true);
@@ -1066,12 +1100,23 @@ impl RegistryBuilder {
         {
             return Ok(VariantFormat::NewType(Box::new(format)));
         }
-        if let Def::Option(v) = field_shape.def
-            && let Some(format) = self.get_user_type_format(v.t)?
-        {
-            return Ok(VariantFormat::NewType(Box::new(Format::Option(Box::new(
-                format,
-            )))));
+        if let Def::Option(v) = field_shape.def {
+            // As in `try_handle_option_field`: the attribute names where the
+            // inner type lives, not where the `Option` sits.
+            let field_namespace = extract_namespace_from_field_attributes(&field)?;
+            self.push_namespace(field_namespace.clone());
+            let format = self.get_user_type_format(v.t)?;
+            if format.is_some()
+                && matches!(&field_namespace, NamespaceAction::SetContext(ctx) if ctx.is_explicit())
+            {
+                self.format(v.t)?;
+            }
+            self.pop_namespace();
+            if let Some(format) = format {
+                return Ok(VariantFormat::NewType(Box::new(Format::Option(Box::new(
+                    format,
+                )))));
+            }
         }
 
         if field_shape.type_identifier == "()" {

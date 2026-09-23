@@ -4063,3 +4063,83 @@ mod format_of {
         );
     }
 }
+
+/// A field-level namespace attribute applies to the type inside an
+/// `Option`, both on a struct field and on an enum's newtype variant.
+mod option_field_namespace {
+    use facet::Facet;
+
+    use crate as fg;
+    use crate::reflect;
+
+    #[derive(Facet)]
+    struct Pinned {
+        value: String,
+    }
+
+    #[test]
+    fn struct_field() {
+        #[derive(Facet)]
+        struct Holder {
+            #[facet(fg::namespace = "elsewhere")]
+            maybe: Option<Pinned>,
+        }
+
+        insta::assert_yaml_snapshot!(reflect!(Holder).unwrap(), @r###"
+        ? namespace: ROOT
+          name: Holder
+        : STRUCT:
+            - - maybe:
+                  - OPTION:
+                      TYPENAME:
+                        namespace:
+                          NAMED: elsewhere
+                        name: Pinned
+                  - []
+            - []
+        ? namespace:
+            NAMED: elsewhere
+          name: Pinned
+        : STRUCT:
+            - - value:
+                  - STR
+                  - []
+            - []
+        "###);
+    }
+
+    #[test]
+    fn enum_newtype_variant() {
+        #[derive(Facet)]
+        #[repr(C)]
+        #[allow(dead_code)]
+        enum Event {
+            Set(#[facet(fg::namespace = "elsewhere")] Option<Pinned>),
+        }
+
+        insta::assert_yaml_snapshot!(reflect!(Event).unwrap(), @r###"
+        ? namespace: ROOT
+          name: Event
+        : ENUM:
+            - 0:
+                Set:
+                  - NEWTYPE:
+                      OPTION:
+                        TYPENAME:
+                          namespace:
+                            NAMED: elsewhere
+                          name: Pinned
+                  - []
+            - EXTERNAL
+            - []
+        ? namespace:
+            NAMED: elsewhere
+          name: Pinned
+        : STRUCT:
+            - - value:
+                  - STR
+                  - []
+            - []
+        "###);
+    }
+}
