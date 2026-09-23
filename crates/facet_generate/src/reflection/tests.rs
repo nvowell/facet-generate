@@ -3605,3 +3605,143 @@ fn generics_unsupported_if_used_twice() {
 
     insta::assert_snapshot!(err.root_cause(), @"failed to add type MyStruct: unsupported generic type: UnsupportedGenerics<u16>, the type may have already been used with different parameters");
 }
+
+/// Regression: a bare user-defined enum inside a multi-field tuple variant
+/// used to be dropped from the tuple entirely.
+///
+/// `format_enum` registers the enum as its own container and returns without
+/// writing to its parent, so nothing claimed the field's slot. The generated
+/// bindings then framed the variant one field short of what Rust encodes —
+/// silently, and in both directions, so the two sides only disagreed across
+/// the wire.
+///
+/// Position matters: the dropped field could be leading, middle or trailing.
+/// A bare *struct* was always fine (`handle_user_struct` sets `TypeName` on
+/// the parent before recursing), as were `Option<Enum>` and `Vec<Enum>`,
+/// which reach the parent through their own paths — so all of those are here
+/// to keep the fix from being narrowed to the symptom.
+#[derive(Facet)]
+#[repr(C)]
+enum TupleVariantPage {
+    Members,
+    JoinReqs,
+}
+
+#[derive(Facet)]
+struct TupleVariantStruct {
+    a: u8,
+}
+
+#[test]
+fn tuple_variant_fields_all_claim_a_slot() {
+    #[derive(Facet)]
+    #[repr(C)]
+    #[allow(dead_code)]
+    enum Nav {
+        Primitives(u64, String),
+        LeadingEnum(TupleVariantPage, String),
+        TrailingEnum(String, TupleVariantPage),
+        MiddleEnum(u8, TupleVariantPage, String),
+        LeadingStruct(TupleVariantStruct, String),
+        OptionEnum(Option<TupleVariantPage>, String),
+        VecEnum(Vec<TupleVariantPage>, String),
+    }
+
+    insta::assert_yaml_snapshot!(reflect!(Nav).unwrap(), @r###"
+    ? namespace: ROOT
+      name: Nav
+    : ENUM:
+        - 0:
+            Primitives:
+              - TUPLE:
+                  - U64
+                  - STR
+              - []
+          1:
+            LeadingEnum:
+              - TUPLE:
+                  - TYPENAME:
+                      namespace: ROOT
+                      name: TupleVariantPage
+                  - STR
+              - []
+          2:
+            TrailingEnum:
+              - TUPLE:
+                  - STR
+                  - TYPENAME:
+                      namespace: ROOT
+                      name: TupleVariantPage
+              - []
+          3:
+            MiddleEnum:
+              - TUPLE:
+                  - U8
+                  - TYPENAME:
+                      namespace: ROOT
+                      name: TupleVariantPage
+                  - STR
+              - []
+          4:
+            LeadingStruct:
+              - TUPLE:
+                  - TYPENAME:
+                      namespace: ROOT
+                      name: TupleVariantStruct
+                  - STR
+              - []
+          5:
+            OptionEnum:
+              - TUPLE:
+                  - OPTION:
+                      TYPENAME:
+                        namespace: ROOT
+                        name: TupleVariantPage
+                  - STR
+              - []
+          6:
+            VecEnum:
+              - TUPLE:
+                  - SEQ:
+                      TYPENAME:
+                        namespace: ROOT
+                        name: TupleVariantPage
+                  - STR
+              - []
+        - EXTERNAL
+        - []
+    ? namespace: ROOT
+      name: TupleVariantPage
+    : ENUM:
+        - 0:
+            Members:
+              - UNIT
+              - []
+          1:
+            JoinReqs:
+              - UNIT
+              - []
+        - EXTERNAL
+        - - "Regression: a bare user-defined enum inside a multi-field tuple variant"
+          - used to be dropped from the tuple entirely.
+          - ""
+          - "`format_enum` registers the enum as its own container and returns without"
+          - "writing to its parent, so nothing claimed the field's slot. The generated"
+          - bindings then framed the variant one field short of what Rust encodes —
+          - "silently, and in both directions, so the two sides only disagreed across"
+          - the wire.
+          - ""
+          - "Position matters: the dropped field could be leading, middle or trailing."
+          - "A bare *struct* was always fine (`handle_user_struct` sets `TypeName` on"
+          - "the parent before recursing), as were `Option<Enum>` and `Vec<Enum>`,"
+          - which reach the parent through their own paths — so all of those are here
+          - to keep the fix from being narrowed to the symptom.
+    ? namespace: ROOT
+      name: TupleVariantStruct
+    : STRUCT:
+        - - a:
+              - U8
+              - []
+        - []
+    "###);
+}

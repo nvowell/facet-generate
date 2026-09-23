@@ -51,6 +51,7 @@ pub struct Installer {
     targets: BTreeMap<String, BTreeSet<String>>,
     external_packages: ExternalPackages,
     plugins: Vec<Arc<dyn EmitterPlugin<Swift>>>,
+    write_manifest: bool,
 }
 
 impl Installer {
@@ -67,6 +68,7 @@ impl Installer {
             targets: BTreeMap::new(),
             external_packages: ExternalPackages::new(),
             plugins: vec![],
+            write_manifest: true,
         }
     }
 
@@ -87,6 +89,18 @@ impl Installer {
             .iter()
             .map(|d| (d.for_namespace.clone(), d.clone()))
             .collect();
+        self
+    }
+
+    /// Skip writing the package manifest.
+    ///
+    /// The manifest assumes the output directory is a package of its own.
+    /// It often isn't: a common setup points an existing module's source set
+    /// at the generated directory, and a build script sitting in a source
+    /// root is at best ignored and at worst compiled as source.
+    #[must_use]
+    pub fn without_manifest(mut self) -> Self {
+        self.write_manifest = false;
         self
     }
 
@@ -138,8 +152,10 @@ impl Installer {
         }
 
         // Write the package manifest
-        let package_name = self.package_name.clone();
-        self.install_manifest(&package_name)?;
+        if self.write_manifest {
+            let package_name = self.package_name.clone();
+            self.install_manifest(&package_name)?;
+        }
 
         Ok(())
     }
@@ -210,21 +226,17 @@ impl Installer {
             }
         }
 
-        // Determine which targets are top-level (not dependencies of other targets)
-        let top_level_targets: Vec<String> = all_targets
+        // Export every generated target through the library product, not just
+        // the top-level ones. A consuming app can only `import` modules the
+        // product exposes, and namespace modules that happen to be depended on
+        // by a sibling (and so aren't "top-level") hold types the app still
+        // needs to name directly — e.g. a `common` namespace shared between
+        // the root module and a view-model namespace.
+        let library_targets: Vec<String> = all_targets
             .keys()
-            .filter(|name| {
-                !external_package_names.contains(*name) && !all_dependencies.contains(*name)
-            })
+            .filter(|name| !external_package_names.contains(*name))
             .cloned()
             .collect();
-
-        // If no top-level targets found (all are dependencies), include the main package
-        let library_targets = if top_level_targets.is_empty() {
-            vec![package_name.to_string()]
-        } else {
-            top_level_targets
-        };
 
         let targets: Vec<String> = all_targets
             .iter()

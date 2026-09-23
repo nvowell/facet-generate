@@ -76,7 +76,7 @@ fn manifest_with_serde_as_target() {
     installer.install_serde_runtime().unwrap();
 
     let manifest = installer.make_manifest(package_name);
-    insta::assert_snapshot!(manifest, @r#"
+    insta::assert_snapshot!(manifest, @r###"
     // swift-tools-version: 5.8
     import PackageDescription
 
@@ -85,7 +85,7 @@ fn manifest_with_serde_as_target() {
         products: [
             .library(
                 name: "MyPackage",
-                targets: ["MyPackage"]
+                targets: ["MyPackage", "Serde"]
             )
         ],
         targets: [
@@ -99,7 +99,7 @@ fn manifest_with_serde_as_target() {
             ),
         ]
     )
-    "#);
+    "###);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn manifest_with_namespaces() {
     }
 
     let manifest = installer.make_manifest(package_name);
-    insta::assert_snapshot!(manifest, @r#"
+    insta::assert_snapshot!(manifest, @r###"
     // swift-tools-version: 5.8
     import PackageDescription
 
@@ -247,7 +247,7 @@ fn manifest_with_namespaces() {
         products: [
             .library(
                 name: "MyPackage",
-                targets: ["MyPackage"]
+                targets: ["AnotherTarget", "MyPackage"]
             )
         ],
         targets: [
@@ -261,7 +261,7 @@ fn manifest_with_namespaces() {
             ),
         ]
     )
-    "#);
+    "###);
 }
 
 #[test]
@@ -597,7 +597,7 @@ fn external_dependency_references_local_dependency() {
     }
 
     let manifest = installer.make_manifest(package_name);
-    insta::assert_snapshot!(manifest, @r#"
+    insta::assert_snapshot!(manifest, @r###"
     // swift-tools-version: 5.8
     import PackageDescription
 
@@ -606,7 +606,7 @@ fn external_dependency_references_local_dependency() {
         products: [
             .library(
                 name: "App",
-                targets: ["App"]
+                targets: ["App", "LocalDependency"]
             )
         ],
         dependencies: [
@@ -625,5 +625,5 @@ fn external_dependency_references_local_dependency() {
             ),
         ]
     )
-    "#);
+    "###);
 }

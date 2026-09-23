@@ -344,6 +344,16 @@ pub struct Config {
     /// External packages to reference.
     #[builder(default = vec![], setter(each(name = "reference")))]
     pub external_packages: Vec<ExternalPackage>,
+    /// Whether to write the package manifest — `Package.swift`,
+    /// `build.gradle.kts`, `package.json` or the `.csproj`.
+    ///
+    /// On by default, which suits a standalone generated package. Turn it
+    /// off when the output directory is a source directory inside a package
+    /// that already has its own build script: the manifest is useless there,
+    /// and a build script sitting in a source root is at best ignored and at
+    /// worst compiled as source.
+    #[builder(default = true)]
+    pub write_manifest: bool,
 }
 
 impl Config {
@@ -393,6 +403,19 @@ pub struct ExternalPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manifest_is_written_by_default() {
+        // The default has to survive `ConfigBuilder::empty()`, or turning the
+        // option on would be silently disabling it for every existing caller.
+        let config = Config::builder("some.package", "out").build();
+        assert!(config.write_manifest);
+
+        let off = Config::builder("some.package", "out")
+            .write_manifest(false)
+            .build();
+        assert!(!off.write_manifest);
+    }
 
     #[test]
     fn with_parent() {

@@ -248,6 +248,17 @@ impl RegistryBuilder {
         self.current.pop();
     }
 
+    /// How many slots a temporary tuple-variant container has claimed so far.
+    ///
+    /// Used to tell whether processing a field appended its own slot; see
+    /// `process_tuple_variant`.
+    fn tuple_variant_arity(&self, temp: &QualifiedTypeName) -> usize {
+        match self.registry.get(temp) {
+            Some(ContainerFormat::TupleStruct(formats, _doc)) => formats.len(),
+            _ => 0,
+        }
+    }
+
     fn get_mut(&mut self) -> Option<&mut ContainerFormat> {
         if let Some(name) = self.current.last() {
             self.registry.get_mut(name)
@@ -691,8 +702,45 @@ impl RegistryBuilder {
         {
             // Handle Option types directly
             let inner_shape = option_def.t();
-            // Handle pointer types specially
-            let inner_format = get_format_for_shape(inner_shape)?;
+
+            // A field-level namespace attribute names where the *inner* type
+            // lives — `Option` is structural. This fast path used to drop the
+            // attribute on the floor: the inner type inherited the containing
+            // type's namespace while the same annotation on an enum variant's
+            // `Option` field was honoured. Mirror `process_newtype_variant`'s
+            // explicit-namespace handling here.
+            let field_namespace = extract_namespace_from_field_attributes(field)?;
+            let explicit_user_type = matches!(
+                &field_namespace,
+                NamespaceAction::SetContext(ctx) if ctx.is_explicit()
+            ) && matches!(
+                inner_shape.ty,
+                Type::User(UserType::Struct(_) | UserType::Enum(_))
+            );
+
+            let inner_format = if explicit_user_type {
+                let NamespaceAction::SetContext(ctx) = &field_namespace else {
+                    unreachable!("explicit_user_type checked SetContext above");
+                };
+                let base_name = inner_shape.type_identifier.to_string();
+                let (context, qualified_name) = match &ctx.namespace {
+                    Namespace::Root => (
+                        NamespaceContext::explicit(Namespace::Root),
+                        QualifiedTypeName::root(base_name),
+                    ),
+                    Namespace::Named(name) => (
+                        NamespaceContext::explicit(Namespace::Named(name.clone())),
+                        QualifiedTypeName::namespaced(name.clone(), base_name),
+                    ),
+                };
+                self.push_namespace(NamespaceAction::SetContext(context));
+                self.format(inner_shape)?;
+                self.pop_namespace();
+                Format::TypeName(qualified_name)
+            } else {
+                // Handle pointer types specially
+                get_format_for_shape(inner_shape)?
+            };
             let option_format = Format::Option(Box::new(inner_format));
 
             if let Some(ContainerFormat::Struct(named_formats, _doc)) = self.get_mut() {
@@ -703,8 +751,9 @@ impl RegistryBuilder {
                 });
             }
 
-            // If the inner type is a user-defined type, we need to process it too
-            if !matches!(inner_shape.def, Def::Scalar) {
+            // If the inner type is a user-defined type, we need to process it
+            // too (the explicit-namespace arm above already has).
+            if !explicit_user_type && !matches!(inner_shape.def, Def::Scalar) {
                 self.format(inner_shape)?;
             }
             return Ok(true);
@@ -890,12 +939,24 @@ impl RegistryBuilder {
         {
             return Ok(VariantFormat::NewType(Box::new(format)));
         }
-        if let Def::Option(v) = field_shape.def
-            && let Some(format) = self.get_user_type_format(v.t)?
-        {
-            return Ok(VariantFormat::NewType(Box::new(Format::Option(Box::new(
-                format,
-            )))));
+        if let Def::Option(v) = field_shape.def {
+            // Same shape as `try_handle_option_field`: `Option` is
+            // structural, so a field-level namespace attribute names where
+            // the inner type lives, and this shortcut used to drop it.
+            let field_namespace = extract_namespace_from_field_attributes(&field)?;
+            self.push_namespace(field_namespace.clone());
+            let format = self.get_user_type_format(v.t)?;
+            if format.is_some()
+                && matches!(&field_namespace, NamespaceAction::SetContext(ctx) if ctx.is_explicit())
+            {
+                self.format(v.t)?;
+            }
+            self.pop_namespace();
+            if let Some(format) = format {
+                return Ok(VariantFormat::NewType(Box::new(Format::Option(Box::new(
+                    format,
+                )))));
+            }
         }
 
         if field_shape.type_identifier == "()" {
@@ -1140,9 +1201,42 @@ impl RegistryBuilder {
             // Use the namespace context of the current enum for its variant fields
             let transparent_namespace = extract_namespace_from_shape(shape)?;
 
+            // `format` is expected to append this field's slot to the
+            // temporary tuple as a side effect: scalars do it through
+            // `update_container_format`, sequences and options through their
+            // own paths, and a user struct through `handle_user_struct`,
+            // which sets `Format::TypeName` on the parent before recursing.
+            //
+            // A bare user *enum* is the one shape that doesn't. `format_enum`
+            // registers the enum as its own container and returns without
+            // touching its parent, so the field vanished from the tuple
+            // entirely — `GoToPage(OpenGroupPage, GroupId)` generated as a
+            // single-field case, and the bindings then framed the variant one
+            // field short of what Rust encodes, in both directions.
+            //
+            // Fixed here rather than in `format_enum` because the parent is
+            // only unambiguous at this call site. Inside `format_enum` the
+            // enclosing container may be a `Struct`, whose slot for this
+            // field has not been pushed yet — `handle_struct_field` appends
+            // its `Named` *after* calling `format` — so updating the parent
+            // there would write into the previous field instead.
+            //
+            // Checking whether a slot was claimed, rather than special-casing
+            // the enum, keeps the next shape that forgets from reopening the
+            // same hole silently.
+            let before = self.tuple_variant_arity(&temp);
+
             self.push_namespace(transparent_namespace);
             self.format(field.shape())?;
             self.pop_namespace();
+
+            if self.tuple_variant_arity(&temp) == before
+                && let Some(format) = self.get_user_type_format(field.shape())?
+                && let Some(ContainerFormat::TupleStruct(formats, _doc)) =
+                    self.registry.get_mut(&temp)
+            {
+                formats.push(format);
+            }
         }
 
         // Extract the formats from the temporary container
