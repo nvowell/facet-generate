@@ -219,8 +219,7 @@ impl Installer {
     pub fn make_manifest(&self, package_name: &str) -> String {
         let all_targets = self.all_targets_with_package(package_name);
         let external_package_names = self.external_package_names();
-        let library_targets_str =
-            Self::library_targets_str(package_name, &all_targets, &external_package_names);
+        let library_targets_str = Self::library_targets_str(&all_targets, &external_package_names);
         let targets = self.render_targets(&all_targets, &external_package_names);
         let dependencies_section = self.dependencies_section();
         let platforms_section = self.platforms_section();
@@ -374,34 +373,19 @@ impl Installer {
     /// product: those that are not external packages and not a dependency
     /// of any other target, falling back to the main package if every
     /// target turns out to be a dependency.
+    /// Every generated target, rendered as the library product's `targets:`.
+    ///
+    /// The product exports all of them, since a module it leaves out cannot be
+    /// imported by the consuming app. External packages are excluded, being
+    /// products of their own; the synthetic package target is always present,
+    /// so the list is never empty.
     fn library_targets_str(
-        package_name: &str,
         all_targets: &BTreeMap<String, BTreeSet<String>>,
         external_package_names: &BTreeSet<String>,
     ) -> String {
-        let mut all_dependencies = BTreeSet::new();
-        for dependencies in all_targets.values() {
-            for dep in dependencies {
-                all_dependencies.insert(dep.clone());
-            }
-        }
-
-        let top_level_targets: Vec<String> = all_targets
+        all_targets
             .keys()
-            .filter(|name| {
-                !external_package_names.contains(*name) && !all_dependencies.contains(*name)
-            })
-            .cloned()
-            .collect();
-
-        let library_targets = if top_level_targets.is_empty() {
-            vec![package_name.to_string()]
-        } else {
-            top_level_targets
-        };
-
-        library_targets
-            .iter()
+            .filter(|name| !external_package_names.contains(*name))
             .map(|t| format!(r#""{t}""#))
             .collect::<Vec<_>>()
             .join(", ")
