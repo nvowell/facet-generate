@@ -65,6 +65,7 @@ pub struct Installer {
     install_dir: PathBuf,
     external_packages: ExternalPackages,
     plugins: Vec<Arc<dyn EmitterPlugin<TypeScript>>>,
+    write_manifest: bool,
 }
 
 impl Installer {
@@ -80,6 +81,7 @@ impl Installer {
             install_dir: install_dir.as_ref().to_path_buf(),
             external_packages: ExternalPackages::new(),
             plugins: vec![],
+            write_manifest: true,
         }
     }
 
@@ -99,6 +101,18 @@ impl Installer {
             .iter()
             .map(|d| (d.for_namespace.clone(), d.clone()))
             .collect();
+        self
+    }
+
+    /// Skip writing the package manifest.
+    ///
+    /// The manifest assumes the output directory is a package of its own.
+    /// It often isn't: a common setup points an existing module's source set
+    /// at the generated directory, and a build script sitting in a source
+    /// root is at best ignored and at worst compiled as source.
+    #[must_use]
+    pub fn without_manifest(mut self) -> Self {
+        self.write_manifest = false;
         self
     }
 
@@ -147,8 +161,10 @@ impl Installer {
         }
 
         // Write the package manifest
-        let package_name = self.package_name.clone();
-        self.install_manifest(&package_name)?;
+        if self.write_manifest {
+            let package_name = self.package_name.clone();
+            self.install_manifest(&package_name)?;
+        }
 
         Ok(())
     }

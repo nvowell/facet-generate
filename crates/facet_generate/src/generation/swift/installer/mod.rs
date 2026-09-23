@@ -69,6 +69,7 @@ pub struct Installer {
     external_packages: ExternalPackages,
     platforms: Vec<String>,
     plugins: Vec<Arc<dyn EmitterPlugin<Swift>>>,
+    write_manifest: bool,
 }
 
 impl Installer {
@@ -88,6 +89,7 @@ impl Installer {
             external_packages: ExternalPackages::new(),
             platforms: vec![],
             plugins: vec![],
+            write_manifest: true,
         }
     }
 
@@ -120,6 +122,18 @@ impl Installer {
     #[must_use]
     pub fn platforms(mut self, platforms: &[String]) -> Self {
         self.platforms = platforms.to_vec();
+        self
+    }
+
+    /// Skip writing the package manifest.
+    ///
+    /// The manifest assumes the output directory is a package of its own.
+    /// It often isn't: a common setup points an existing module's source set
+    /// at the generated directory, and a build script sitting in a source
+    /// root is at best ignored and at worst compiled as source.
+    #[must_use]
+    pub fn without_manifest(mut self) -> Self {
+        self.write_manifest = false;
         self
     }
 
@@ -171,8 +185,10 @@ impl Installer {
         }
 
         // Write the package manifest
-        let package_name = self.package_name.clone();
-        self.install_manifest(&package_name)?;
+        if self.write_manifest {
+            let package_name = self.package_name.clone();
+            self.install_manifest(&package_name)?;
+        }
 
         Ok(())
     }
