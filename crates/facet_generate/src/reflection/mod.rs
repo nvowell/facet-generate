@@ -260,6 +260,13 @@ impl RegistryBuilder {
     /// is `Seq(U8)`, not `Bytes`, because `#[facet(fg::bytes)]` is a property
     /// of the field, not of the type.
     ///
+    /// The type names in the result are in registry spelling, as the registry
+    /// keys are. The emitters rewrite every reference before emitting it, so
+    /// requalify each type name with the target language's `requalify` (for
+    /// example [`csharp::requalify`](crate::generation::csharp::requalify))
+    /// before passing the format to the language's `render_type` or
+    /// `write_serialize_value`.
+    ///
     /// # Errors
     ///
     /// Returns an error if `T` (or a type reachable from it) cannot be

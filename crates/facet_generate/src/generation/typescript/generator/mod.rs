@@ -124,8 +124,12 @@ impl<'a> TypeScriptCodeGenerator<'a> {
     }
 
     /// The spelling [`update_qualified_names`](Self::update_qualified_names)
-    /// gives a reference to `name`.
-    fn requalify(config: &CodeGeneratorConfig, name: &QualifiedTypeName) -> QualifiedTypeName {
+    /// gives a reference to `name`, exported to plugins as
+    /// [`typescript::requalify`](crate::generation::typescript::requalify).
+    pub(crate) fn requalify(
+        config: &CodeGeneratorConfig,
+        name: &QualifiedTypeName,
+    ) -> QualifiedTypeName {
         match &name.namespace {
             // Same-module type: strip namespace so it renders as a bare name
             Namespace::Named(namespace) if namespace == config.module_name() => {

@@ -168,8 +168,12 @@ impl<'a> CSharpCodeGenerator<'a> {
     }
 
     /// The spelling [`update_qualified_names`](Self::update_qualified_names)
-    /// gives a reference to `name`.
-    fn requalify(config: &CodeGeneratorConfig, name: &QualifiedTypeName) -> QualifiedTypeName {
+    /// gives a reference to `name`, exported to plugins as
+    /// [`csharp::requalify`](crate::generation::csharp::requalify).
+    pub(crate) fn requalify(
+        config: &CodeGeneratorConfig,
+        name: &QualifiedTypeName,
+    ) -> QualifiedTypeName {
         match &name.namespace {
             Namespace::Named(namespace) => {
                 let current_leaf_namespace = config

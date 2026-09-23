@@ -84,6 +84,7 @@ impl<'a> SwiftCodeGenerator<'a> {
 
         let mut config = self.config.clone();
         config.update_from(registry);
+        config.requalify_enums(registry, Self::requalify);
         Self::reference_root_types(&mut config, registry);
         check_reserved_names(registry, &naming::RULES)?;
 
@@ -116,6 +117,7 @@ impl<'a> SwiftCodeGenerator<'a> {
     pub fn companion_files(&self, registry: &Registry) -> Result<Vec<CompanionFile>> {
         let mut config = self.config.clone();
         config.update_from(registry);
+        config.requalify_enums(registry, Self::requalify);
         Self::reference_root_types(&mut config, registry);
 
         let mut lang = Swift::new(&config, registry);
@@ -159,7 +161,8 @@ impl<'a> SwiftCodeGenerator<'a> {
     /// a same-named type of the module's own from capturing it. Only when the
     /// config knows the root package ([`CodeGeneratorConfig::parent`], which
     /// the installer sets); otherwise, and in the root module itself, every
-    /// reference is unchanged.
+    /// reference is unchanged. Exported to plugins as
+    /// [`swift::requalify`](crate::generation::swift::requalify).
     pub(crate) fn requalify(
         config: &CodeGeneratorConfig,
         name: &QualifiedTypeName,

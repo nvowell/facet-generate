@@ -114,6 +114,7 @@ impl<'a> KotlinCodeGenerator<'a> {
     pub fn companion_files(&self, registry: &Registry) -> Result<Vec<CompanionFile>> {
         let mut config = self.config.clone();
         config.update_from(registry);
+        config.requalify_enums(registry, Self::requalify);
 
         let mut lang = Kotlin::new(&config, registry);
         for p in &self.plugins {
@@ -180,8 +181,12 @@ impl<'a> KotlinCodeGenerator<'a> {
     }
 
     /// The spelling [`update_qualified_names`](Self::update_qualified_names)
-    /// gives a reference to `name`.
-    fn requalify(config: &CodeGeneratorConfig, name: &QualifiedTypeName) -> QualifiedTypeName {
+    /// gives a reference to `name`, exported to plugins as
+    /// [`kotlin::requalify`](crate::generation::kotlin::requalify).
+    pub(crate) fn requalify(
+        config: &CodeGeneratorConfig,
+        name: &QualifiedTypeName,
+    ) -> QualifiedTypeName {
         match &name.namespace {
             Namespace::Named(namespace) => {
                 // First check if this namespace has an external package configuration with a Path
